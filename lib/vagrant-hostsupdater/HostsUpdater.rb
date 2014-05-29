@@ -77,6 +77,18 @@ module VagrantPlugins
         content = entries.join("\n").strip
         if !File.writable?(@@hosts_path)
           sudo(%Q(sh -c 'echo "#{content}" >> #@@hosts_path'))
+        elsif Vagrant::Util::Platform.windows?
+          require 'tmpdir'
+          uuid = @machine.id || @machine.config.hostsupdater.id
+          hashedId = Digest::MD5.hexdigest(uuid)
+          tmpPath = File.join(Dir.tmpdir, 'hosts-' + uuid)
+          tmpFile = File.open(tmpPath, "w")
+          tmpFile.write(content)
+          tmpFile.close()
+          win32AppendFallback = File.join(File.dirname(__FILE__), "fallbacks", "win32-append.cmd")
+          win32TmpPath = tmpPath.gsub('/', '\\')
+          puts win32TmpPath
+          sudo(%Q(#{win32AppendFallback} #{win32TmpPath} #@@hosts_path))
         else
           content = "\n" + content
           hostsFile = File.open(@@hosts_path, "a")
@@ -88,7 +100,7 @@ module VagrantPlugins
       def removeFromHosts(options = {})
         uuid = @machine.id || @machine.config.hostsupdater.id
         hashedId = Digest::MD5.hexdigest(uuid)
-        if !File.writable?(@@hosts_path)
+        if !File.writable?(@@hosts_path) || Vagrant::Util::Platform.windows?
           sudo(%Q(sed -i -e '/#{hashedId}/ d' #@@hosts_path))
         else
           hosts = ""
@@ -111,7 +123,8 @@ module VagrantPlugins
       def sudo(command)
         return if !command
         if Vagrant::Util::Platform.windows?
-          `#{command}`
+          win32SudoFallback = File.join(File.dirname(__FILE__), "fallbacks", "win32-sudo.ps1")
+          puts `powershell -ExecutionPolicy Unrestricted -File #{win32SudoFallback} #{command}`
         else
           `sudo #{command}`
         end
